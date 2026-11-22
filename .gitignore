@@ -39,3 +39,6 @@ backend-java/.mvn/wrapper/maven-wrapper.jar
 
 # Docker
 docker-compose.override.yml
+
+# Upload data (local PDFs must never be committed)
+data/

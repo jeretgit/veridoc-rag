@@ -32,7 +32,10 @@ services:
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-veridoc}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-veridoc123}
       AI_SERVICE_URL: http://ai-service-python:8000
+      UPLOAD_DIR: /app/uploads
       JAVA_OPTS: "-Xmx512m -Xms256m"
+    volumes:
+      - ./data/uploads:/app/uploads
     ports:
       - "${BACKEND_PORT:-8080}:8080"
 
@@ -51,6 +54,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-veridoc}:${POSTGRES_PASSWORD:-veridoc123}@postgres:5432/${POSTGRES_DB:-veridoc}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - ./data/uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
