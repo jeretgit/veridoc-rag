@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: veridoc-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/veridoc}
+    username: ${SPRING_DATASOURCE_USERNAME:veridoc}
+    password: ${SPRING_DATASOURCE_PASSWORD:veridoc123}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+
+ai:
+  service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

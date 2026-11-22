@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+target/
+__pycache__/
+.venv/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build output
+dist/
+build/
+out/
+
+# Angular
+.angular/cache/
+frontend-angular/.angular/cache/
+
+# Maven
+backend-java/.mvn/wrapper/maven-wrapper.jar
+
+# Docker
+docker-compose.override.yml
