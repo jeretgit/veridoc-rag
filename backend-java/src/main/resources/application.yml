@@ -21,6 +21,9 @@ spring:
 ai:
   service:
     url: ${AI_SERVICE_URL:http://localhost:8000}
+    # Local embedding of a large PDF is slow; keep the read timeout generous.
+    connect-timeout-ms: ${AI_SERVICE_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${AI_SERVICE_READ_TIMEOUT_MS:120000}
 
 upload:
   dir: ${UPLOAD_DIR:./data/uploads}

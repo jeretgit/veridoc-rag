@@ -28,8 +28,15 @@ public class DocumentController {
         this.documentService = documentService;
     }
 
+    /**
+     * Upload a PDF and immediately ingest it.
+     *
+     * Returns 201 with the document metadata; status is READY on success or
+     * FAILED when ingestion could not complete (the upload itself is kept).
+     */
     @PostMapping
-    public ResponseEntity<DocumentDto> upload(@RequestParam("file") MultipartFile file) throws Exception {
+    public ResponseEntity<DocumentDto> upload(@RequestParam("file") MultipartFile file)
+            throws Exception {
         DocumentDto dto = documentService.upload(file);
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
@@ -42,6 +49,23 @@ public class DocumentController {
     @GetMapping("/{id}")
     public ResponseEntity<DocumentDto> getById(@PathVariable UUID id) {
         DocumentDto dto = documentService.getById(id);
+        if (dto == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(dto);
+    }
+
+    /**
+     * Re-run ingestion for an existing document, optionally with custom
+     * chunk parameters.
+     */
+    @PostMapping("/{id}/ingest")
+    public ResponseEntity<DocumentDto> reIngest(
+            @PathVariable UUID id,
+            @RequestParam(value = "chunkSize", required = false) Integer chunkSize,
+            @RequestParam(value = "chunkOverlap", required = false) Integer chunkOverlap
+    ) {
+        DocumentDto dto = documentService.retryIngest(id, chunkSize, chunkOverlap);
         if (dto == null) {
             return ResponseEntity.notFound().build();
         }

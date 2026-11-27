@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.veridoc.document.client.AiIngestException;
+import com.veridoc.document.client.AiServiceClient;
 import com.veridoc.document.dto.DocumentDto;
 import com.veridoc.document.dto.DocumentMapper;
 import com.veridoc.document.entity.DocumentEntity;
@@ -29,19 +31,41 @@ public class DocumentService {
     private static final String PDF_MAGIC = "%PDF-";
     private static final long MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
+    public static final String STATUS_UPLOADED = "UPLOADED";
+    public static final String STATUS_PROCESSING = "PROCESSING";
+    public static final String STATUS_READY = "READY";
+    public static final String STATUS_FAILED = "FAILED";
+
     private final DocumentRepository repository;
+    private final AiServiceClient aiServiceClient;
     private final Path uploadDir;
 
     public DocumentService(
             DocumentRepository repository,
+            AiServiceClient aiServiceClient,
             @Value("${upload.dir:./data/uploads}") String uploadDirPath
     ) {
         this.repository = repository;
+        this.aiServiceClient = aiServiceClient;
         this.uploadDir = Paths.get(uploadDirPath);
     }
 
-    @Transactional
+    /**
+     * Store an uploaded PDF, then kick off ingestion.
+     *
+     * The upload itself is never rolled back if ingestion fails — the document
+     * row is kept with status FAILED so the user can retry.
+     */
     public DocumentDto upload(MultipartFile file) throws IOException {
+        DocumentEntity entity = storeFile(file);
+        return ingestExisting(entity, null, null);
+    }
+
+    // ------------------------------------------------------------------
+    // Upload: validation + persistence
+    // ------------------------------------------------------------------
+
+    private DocumentEntity storeFile(MultipartFile file) throws IOException {
         // --- validation ---
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File is empty or missing");
@@ -68,15 +92,12 @@ public class DocumentService {
         // --- persist to disk ---
         Files.createDirectories(uploadDir);
         UUID docId = UUID.randomUUID();
-        String storedName = docId + ".pdf";
-        Path target = uploadDir.resolve(storedName).toAbsolutePath();
+        Path target = uploadDir.resolve(docId + ".pdf").toAbsolutePath();
 
-        // Safety: ensure target is inside uploadDir
         if (!target.startsWith(uploadDir.toAbsolutePath())) {
             throw new IllegalStateException("Resolved path escapes upload directory");
         }
 
-        // Reset stream position (we read 5 bytes for magic check)
         try (var in = file.getInputStream()) {
             Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
         }
@@ -87,17 +108,91 @@ public class DocumentService {
         entity.setFileName(originalName);
         entity.setStoredPath(target.toString());
         entity.setFileSize(file.getSize());
-        entity.setContentType(file.getContentType() != null ? file.getContentType() : "application/pdf");
-        entity.setStatus("UPLOADED");
+        entity.setContentType(
+                file.getContentType() != null ? file.getContentType() : "application/pdf"
+        );
+        entity.setStatus(STATUS_UPLOADED);
         entity.setPageCount(0);
         entity.setChunkCount(0);
         entity.setCreatedAt(OffsetDateTime.now());
         entity.setUpdatedAt(OffsetDateTime.now());
 
+        return repository.save(entity);
+    }
+
+    // ------------------------------------------------------------------
+    // Ingestion (shared by upload and retry)
+    // ------------------------------------------------------------------
+
+    /**
+     * Run the Python ingestion pipeline for an already stored document.
+     *
+     * Status transitions: PROCESSING -> READY (success) or PROCESSING -> FAILED.
+     * Failures never roll back the stored document.
+     */
+    public DocumentDto ingestExisting(
+            DocumentEntity entity,
+            Integer chunkSize,
+            Integer chunkOverlap
+    ) {
+        UUID docId = entity.getId();
+
+        entity.setStatus(STATUS_PROCESSING);
+        entity.setErrorMessage(null);
+        entity.setUpdatedAt(OffsetDateTime.now());
         repository.save(entity);
+
+        try {
+            AiServiceClient.IngestResult result = aiServiceClient.ingest(
+                    docId.toString(),
+                    entity.getStoredPath(),
+                    chunkSize,
+                    chunkOverlap
+            );
+
+            entity.setStatus(STATUS_READY);
+            entity.setPageCount(result.pageCount());
+            entity.setChunkCount(result.chunkCount());
+            entity.setErrorMessage(null);
+            entity.setUpdatedAt(OffsetDateTime.now());
+            repository.save(entity);
+
+            log.info("Document {} is READY ({} pages, {} chunks)",
+                    docId, result.pageCount(), result.chunkCount());
+
+        } catch (AiIngestException e) {
+            // Keep the row; record why it failed so it can be retried.
+            entity.setStatus(STATUS_FAILED);
+            entity.setErrorMessage(e.getMessage());
+            entity.setUpdatedAt(OffsetDateTime.now());
+            repository.save(entity);
+
+            log.warn("Document {} is FAILED: {}", docId, e.getMessage());
+        }
 
         return DocumentMapper.toDto(entity);
     }
+
+    /**
+     * Retry ingestion for an existing document, optionally with custom
+     * chunk parameters. Returns null when the document does not exist.
+     */
+    @Transactional
+    public DocumentDto retryIngest(UUID id, Integer chunkSize, Integer chunkOverlap) {
+        if (chunkSize != null && chunkOverlap != null && chunkOverlap >= chunkSize) {
+            throw new IllegalArgumentException(
+                    "chunkOverlap must be smaller than chunkSize"
+            );
+        }
+
+        return repository.findById(id)
+                .map(entity -> ingestExisting(entity, chunkSize, chunkOverlap))
+                .orElse(null);
+    }
+
+    // ------------------------------------------------------------------
+    // Queries & deletion
+    // ------------------------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<DocumentDto> listAll() {
@@ -136,7 +231,8 @@ public class DocumentService {
 
             // Only delete if the file is inside UPLOAD_DIR
             if (!filePath.startsWith(uploadAbs)) {
-                log.warn("Skipping file deletion: path {} is outside upload dir {}", filePath, uploadAbs);
+                log.warn("Skipping file deletion: path {} is outside upload dir {}",
+                        filePath, uploadAbs);
                 return;
             }
 

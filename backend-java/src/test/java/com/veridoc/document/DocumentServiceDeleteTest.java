@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Value;
 
+import com.veridoc.document.client.AiServiceClient;
 import com.veridoc.document.entity.DocumentEntity;
 import com.veridoc.document.repository.DocumentRepository;
 import com.veridoc.document.service.DocumentService;
@@ -27,18 +28,20 @@ class DocumentServiceDeleteTest {
     Path tempUploadDir;
 
     private DocumentRepository repository;
+    private AiServiceClient aiServiceClient;
     private DocumentService service;
     private Path testFile;
 
     @BeforeEach
     void setUp() throws IOException {
         repository = mock(DocumentRepository.class);
+        aiServiceClient = mock(AiServiceClient.class);
 
         // Create a fake PDF file on disk
         testFile = tempUploadDir.resolve("test-doc.pdf");
         Files.writeString(testFile, "%PDF-1.4 fake content");
 
-        service = new DocumentService(repository, tempUploadDir.toString());
+        service = new DocumentService(repository, aiServiceClient, tempUploadDir.toString());
     }
 
     @Test

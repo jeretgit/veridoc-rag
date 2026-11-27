@@ -104,9 +104,10 @@ class DocumentUploadTest {
                 "file", "report.pdf", "application/pdf", pdfContent
         );
 
+        // Successful ingestion yields READY with page/chunk counts.
         DocumentDto dto = new DocumentDto(
                 docId, "report.pdf", (long) pdfContent.length, "application/pdf",
-                "UPLOADED", 0, 0, null, OffsetDateTime.now(), OffsetDateTime.now()
+                "READY", 4, 12, null, OffsetDateTime.now(), OffsetDateTime.now()
         );
 
         when(documentService.upload(any())).thenReturn(dto);
@@ -115,6 +116,33 @@ class DocumentUploadTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").exists())
                 .andExpect(jsonPath("$.fileName").value("report.pdf"))
-                .andExpect(jsonPath("$.status").value("UPLOADED"));
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.pageCount").value(4))
+                .andExpect(jsonPath("$.chunkCount").value(12));
+    }
+
+    // ========== Test: upload with ingestion failure still returns 201 ==========
+
+    @Test
+    void uploadWithFailedIngestReturns201AndFailedStatus() throws Exception {
+        UUID docId = UUID.randomUUID();
+        byte[] pdfContent = ("%PDF-1.4\n%fake content for test\n").getBytes();
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "report.pdf", "application/pdf", pdfContent
+        );
+
+        DocumentDto dto = new DocumentDto(
+                docId, "report.pdf", (long) pdfContent.length, "application/pdf",
+                "FAILED", 0, 0, "AI service call failed: timeout",
+                OffsetDateTime.now(), OffsetDateTime.now()
+        );
+
+        when(documentService.upload(any())).thenReturn(dto);
+
+        mockMvc.perform(multipart("/api/documents").file(file))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.errorMessage").value("AI service call failed: timeout"));
     }
 }
