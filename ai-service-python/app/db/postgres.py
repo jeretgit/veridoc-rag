@@ -78,3 +78,69 @@ def insert_chunks(
             params,
         )
         return cur.rowcount
+
+
+def search_chunks(
+    conn: psycopg.Connection,
+    query_vector: list[float],
+    top_k: int = 5,
+    min_score: float = 0.0,
+    document_ids: list[str] | None = None,
+) -> list[dict]:
+    """Cosine-similarity search over ready documents.
+
+    ``similarity = 1 - cosine_distance`` where pgvector's ``<=>`` operator
+    yields the cosine distance. Only chunks belonging to documents with
+    ``status = 'READY'`` are considered, and results are filtered by
+    ``similarity >= min_score`` then ordered by descending similarity.
+
+    Returns dicts with: document_id, file_name, page_number, chunk_index,
+    content, score.
+    """
+    if top_k <= 0:
+        return []
+
+    id_filter = ""
+    extra_params: list = []
+    if document_ids:
+        id_filter = " AND d.id = ANY(%s::uuid[])"
+        extra_params.append(list(document_ids))
+
+    sql = f"""
+        SELECT
+            dc.document_id,
+            d.file_name,
+            dc.page_number,
+            dc.chunk_index,
+            dc.content,
+            1 - (dc.embedding <=> %s::vector) AS similarity
+        FROM document_chunks dc
+        JOIN documents d ON d.id = dc.document_id
+        WHERE d.status = 'READY'
+          AND dc.embedding IS NOT NULL
+          AND 1 - (dc.embedding <=> %s::vector) >= %s
+          {id_filter}
+        ORDER BY dc.embedding <=> %s::vector
+        LIMIT %s
+    """
+
+    params = [query_vector, query_vector, min_score, *extra_params, query_vector, top_k]
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+    results = []
+    for row in rows:
+        (document_id, file_name, page_number, chunk_index, content, similarity) = row
+        results.append(
+            {
+                "document_id": str(document_id),
+                "file_name": file_name,
+                "page_number": page_number,
+                "chunk_index": chunk_index,
+                "content": content,
+                "score": float(similarity),
+            }
+        )
+    return results

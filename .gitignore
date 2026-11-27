@@ -42,3 +42,6 @@ docker-compose.override.yml
 
 # Upload data (local PDFs must never be committed)
 data/
+
+# Local agent workspace data
+.workbuddy-ai/

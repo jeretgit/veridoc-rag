@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     # ---- Ollama ----
     ollama_base_url: str = "http://host.docker.internal:11434"
     embedding_model: str = "nomic-embed-text"
+    chat_model: str = "llama3.1:8b"
+
+    # ---- Retrieval ----
+    top_k: int = 5
+    min_similarity_score: float = 0.35
 
     # ---- OpenAI-compatible (reserved for cloud demo mode) ----
     openai_api_base: str = ""
